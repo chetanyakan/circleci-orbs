@@ -1,0 +1,80 @@
+version: 2.1
+
+description: |
+  Easily integrate custom Mattermost notifications into your CircleCI projects.
+
+executors:
+  default:
+    resource_class: small
+    docker:
+      - image: cibuilds/base:latest
+        environment:
+          TERM: dumb
+
+commands:
+  status:
+    description: >
+      Notify Mattermost at the end of a job based on success or failure.
+      Must be the last step in a job.
+    parameters:
+      webhook:
+        description: Enter either your Webhook value or use the CircleCI UI to add your token under the 'WEBHOOK_URL' env var
+        type: string
+        default: ${WEBHOOK_URL}
+    steps:
+      - run:
+          name: Set Failure Condition
+          command: |
+            echo 'export MM_BUILD_STATUS="failure"' >> $BASH_ENV
+          when: on_fail
+
+      - run:
+          name: Set Success Condition
+          command: |
+            echo 'export MM_BUILD_STATUS="success"' >> $BASH_ENV
+          when: on_success
+
+      - run:
+          name: Provide error if non-bash shell
+          when: always
+          command: |
+            if [ ! -x /bin/bash ]; then
+              echo Bash not installed.
+              exit 1
+            fi
+
+      - run:
+          name: Mattermost Notification
+          shell: /bin/bash
+          when: always
+          command: |
+            # Provide error if no webhook is set and error. Otherwise continue
+            if [ -z "<< parameters.webhook >>" ]; then
+              echo "No Mattermost WEBHOOK_URL Set"
+              echo "Please input your WEBHOOK_URL value either in the settings for this project, or as a parameter for this orb."
+              exit 1
+            else
+              # Webhook properly set.
+              echo Sending Mattermost Notification
+              curl -i -X POST \
+                -H 'Content-Type: application/json' \
+                --data \
+                "{ \
+                  \"status\":\"$MM_BUILD_STATUS\", \
+                  \"build_url\": \"$CIRCLE_BUILD_URL\", \
+                  \"repo_url\": \"$CIRCLE_REPOSITORY_URL\", \
+                  \"repo_name\":\"$CIRCLE_PROJECT_REPONAME\", \
+                  \"build_num\":\"$CIRCLE_BUILD_NUM\", \
+                  \"tag\":\"$CIRCLE_TAG\", \
+                  \"commit\":\"$CIRCLE_SHA1\", \
+                  \"build_url\":\"$CIRCLE_BUILD_URL\", \
+                  \"org_name\":\"$CIRCLE_PROJECT_USERNAME\", \
+                  \"branch\":\"$CIRCLE_BRANCH\", \
+                  \"username\":\"$CIRCLE_USERNAME\", \
+                  \"pull_request\":\"$CIRCLE_PULL_REQUEST\", \
+                  \"job_name\":\"$CIRCLE_JOB\", \
+                  \"workflow_id\":\"$CIRCLE_WORKFLOW_ID\", \
+                  \"pipeline_number\": \"$CIRCLE_PIPELINE_NUMBER\", \
+                  \"compare_url\":\"$CIRCLE_COMPARE_URL\" \
+                }" << parameters.webhook >>
+            fi
